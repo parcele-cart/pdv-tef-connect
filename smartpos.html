@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Smartpos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+</head>
+
+<body class="bg-gray-100 text-gray-800 p-6">
+  <div class="max-w-xl mx-auto text-center mb-4">
+    <img
+      src="https://cdn.prod.website-files.com/65011b6abd0d59041fad09c5/65011ed5fee5e884b3877bbb_Logotipo_ParceleCart_Default-p-500.png"
+      alt="Logotipo ParceleCart" class="w-48 h-auto object-contain mx-auto" />
+  </div>
+
+  <div class="max-w-xl mx-auto bg-white shadow-lg rounded-lg p-6">
+    <div class="flex items-center gap-6 bg-gray-100 p-6 rounded-xl shadow-md animate-fade-in">
+      <div>
+        <h1 class="text-3xl font-extrabold text-[#1c1c57] flex items-center gap-3">
+          Simulador Smartpos
+        </h1>
+        <p class="text-sm text-[#1c1c57] mt-1">
+          Simule de recebimento de transações do PDV
+        </p>
+      </div>
+    </div>
+
+    <div class="space-y-4 mb-6 mt-6">
+      <div>
+        <label class="block text-sm font-medium mb-1">URL do Socket:</label>
+        <input id="socketUrl" type="text" placeholder="https://..."
+          class="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 transition" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Bearer Token:</label>
+        <input id="bearerToken" type="text"
+          class="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 transition" />
+      </div>
+    </div>
+
+    <p class="mb-4 text-center">Status: <span id="status" class="font-bold text-red-500">Disconnected</span></p>
+    
+    <div class="flex gap-3 justify-center mb-6">
+      <button id="connectBtn" aria-label="Conectar ao servidor"
+        class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded flex items-center gap-2">
+        <i class="fas fa-plug"></i> Conectar
+      </button>
+      <button id="disconnectBtn" aria-label="Desconectar do servidor" disabled
+        class="bg-gray-400 text-white px-4 py-2 rounded flex items-center gap-2">
+        <i class="fas fa-unlink"></i> Desconectar
+      </button>
+    </div>
+    
+    <!-- Seção dinâmica que aparece apenas com conexão e requisição recebida -->
+    <div id="responseSection" class="hidden">
+      <!-- Requisição recebida -->
+      <div class="mb-4">
+        <h2 class="text-xl font-semibold mb-2">Requisição Recebida</h2>
+        <pre id="request" class="bg-gray-200 p-3 rounded text-sm overflow-x-auto whitespace-pre-wrap"></pre>
+      </div>
+    
+      <!-- Botões de status -->
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Status da Resposta:</label>
+          <div id="statusButtons" class="flex gap-3">
+            <button data-status="PAID"
+              class="status-btn ring-2 ring-offset-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded flex items-center gap-2">
+              <i class="fas fa-check-circle"></i> Pago
+            </button>
+            <button data-status="DECLINED"
+              class="status-btn bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded flex items-center gap-2">
+              <i class="fas fa-ban"></i> Recusado
+            </button>
+            <button data-status="CANCELED"
+              class="status-btn bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded flex items-center gap-2">
+              <i class="fas fa-times-circle"></i> Cancelado
+            </button>
+          </div>
+        </div>
+    
+        <!-- Valor líquido -->
+        <div>
+          <label class="block text-sm font-medium mb-1">Valor Líquido:</label>
+          <input id="valueLiquid" type="number" step="0.01"
+            class="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 transition" />
+        </div>
+    
+        <!-- Botão de envio -->
+        <button id="sendResponseBtn" class="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
+          Enviar Resposta
+        </button>
+      </div>
+    </div>
+    </div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+          let socket;
+          let currentTx;
+          let selectedStatus = 'PAID';
+
+          const statusEl = document.getElementById('status');
+          const requestEl = document.getElementById('request');
+          const responseSection = document.getElementById('responseSection');
+          const connectBtn = document.getElementById('connectBtn');
+          const disconnectBtn = document.getElementById('disconnectBtn');
+          const sendResponseBtn = document.getElementById('sendResponseBtn');
+
+          // Seleção de status pelos botões
+          document.querySelectorAll('.status-btn').forEach(btn => {
+            btn.onclick = () => {
+              selectedStatus = btn.getAttribute('data-status');
+              document.querySelectorAll('.status-btn').forEach(b => b.classList.remove('ring-2', 'ring-offset-2'));
+              btn.classList.add('ring-2', 'ring-offset-2');
+            };
+          });
+
+    connectBtn.onclick = () => {
+      const url = document.getElementById('socketUrl').value.trim();
+      const token = document.getElementById('bearerToken').value.trim();
+
+      if (!url || !token) {
+        alert("Informe a URL e o Bearer Token.");
+        return;
+      }
+
+      socket = io(url, {
+        transports: ['websocket'],
+        auth: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      socket.on('connect', () => {
+        statusEl.textContent = 'Connected';
+        statusEl.className = 'font-bold text-green-600';
+        connectBtn.disabled = true;
+        disconnectBtn.disabled = false;
+        responseSection.classList.add('hidden');
+        socket.emit('join_smartpos');
+      });
+
+      socket.on('payment_request', (data) => {
+        currentTx = data;
+        requestEl.textContent = JSON.stringify(data, null, 2);
+        responseSection.classList.remove('hidden');
+      });
+
+      socket.on('disconnect', () => {
+        statusEl.textContent = 'Disconnected';
+        statusEl.className = 'font-bold text-red-500';
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+        responseSection.classList.add('hidden');
+      });
+    };
+
+  disconnectBtn.onclick = () => {
+    if (socket) socket.disconnect();
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'font-bold text-red-500';
+    connectBtn.disabled = false;
+    disconnectBtn.disabled = true;
+    responseSection.classList.add('hidden');
+  };
+
+  sendResponseBtn.onclick = () => {
+    if (!socket || !currentTx) {
+      alert("Nenhuma transação para responder.");
+      return;
+    }
+
+    const status = selectedStatus;
+    const valueLiquid = parseFloat(document.getElementById('valueLiquid').value || '0');
+
+    if (status === 'PAID' && valueLiquid <= 0) {
+      alert("Informe um valor líquido válido para status PAID.");
+      return;
+    }
+
+      socket.emit('payment_response', {
+        idSale: 'xpto',
+        idInternal: 'xpto',
+        id: currentTx.id,
+        status,
+        valueLiquid
+      });
+
+    requestEl.textContent = '';
+    responseSection.classList.add('hidden');
+    currentTx = null;
+    };
+  </script>
+</body>
+
+</html>
